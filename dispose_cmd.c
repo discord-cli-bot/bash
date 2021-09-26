@@ -279,25 +279,6 @@ dispose_words (list)
     }
 }
 
-#ifdef INCLUDE_UNUSED
-/* How to dispose of an array of pointers to char.  This is identical to
-   free_array in stringlib.c. */
-void
-dispose_word_array (array)
-     char **array;
-{
-  register int count;
-
-  if (array == 0)
-    return;
-
-  for (count = 0; array[count]; count++)
-    free (array[count]);
-
-  free (array);
-}
-#endif
-
 /* How to dispose of an list of redirections.  A REDIRECT. */
 void
 dispose_redirects (list)

@@ -628,20 +628,6 @@ get_dirstack_from_string (string)
     return (pushd_directory_list[ind]);
 }
 
-#ifdef INCLUDE_UNUSED
-char *
-get_dirstack_element (ind, sign)
-     intmax_t ind;
-     int sign;
-{
-  int i;
-
-  i = get_dirstack_index (ind, sign, (int *)NULL);
-  return (i < 0 || i > directory_list_offset) ? (char *)NULL
-					      : pushd_directory_list[i];
-}
-#endif
-
 void
 set_dirstack_element (ind, sign, value)
      intmax_t ind;

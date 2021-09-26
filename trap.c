@@ -576,16 +576,6 @@ check_signals_and_traps ()
 
 #if defined (JOB_CONTROL) && defined (SIGCHLD)
 
-#ifdef INCLUDE_UNUSED
-/* Make COMMAND_STRING be executed when SIGCHLD is caught. */
-void
-set_sigchld_trap (command_string)
-     char *command_string;
-{
-  set_signal (SIGCHLD, command_string);
-}
-#endif
-
 /* Make COMMAND_STRING be executed when SIGCHLD is caught iff SIGCHLD
    is not already trapped.  IMPOSSIBLE_TRAP_HANDLER is used as a sentinel
    to make sure that a SIGCHLD trap handler run via run_sigchld_trap can
@@ -683,15 +673,6 @@ maybe_set_return_trap (command)
 {
   trap_if_untrapped (RETURN_TRAP, command);
 }
-
-#ifdef INCLUDE_UNUSED
-void
-set_sigint_trap (command)
-     char *command;
-{
-  set_signal (SIGINT, command);
-}
-#endif
 
 /* Reset the SIGINT handler so that subshells that are doing `shellsy'
    things, like waiting for command substitution or executing commands

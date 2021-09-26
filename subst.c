@@ -537,187 +537,6 @@ dump_word_flags (flags)
 }
 #endif
 
-#ifdef INCLUDE_UNUSED
-static char *
-quoted_substring (string, start, end)
-     char *string;
-     int start, end;
-{
-  register int len, l;
-  register char *result, *s, *r;
-
-  len = end - start;
-
-  /* Move to string[start], skipping quoted characters. */
-  for (s = string, l = 0; *s && l < start; )
-    {
-      if (*s == CTLESC)
-	{
-	  s++;
-	  continue;
-	}
-      l++;
-      if (*s == 0)
-	break;
-    }
-
-  r = result = (char *)xmalloc (2*len + 1);      /* save room for quotes */
-
-  /* Copy LEN characters, including quote characters. */
-  s = string + l;
-  for (l = 0; l < len; s++)
-    {
-      if (*s == CTLESC)
-	*r++ = *s++;
-      *r++ = *s;
-      l++;
-      if (*s == 0)
-	break;
-    }
-  *r = '\0';
-  return result;
-}
-#endif
-
-#ifdef INCLUDE_UNUSED
-/* Return the length of S, skipping over quoted characters */
-static int
-quoted_strlen (s)
-     char *s;
-{
-  register char *p;
-  int i;
-
-  i = 0;
-  for (p = s; *p; p++)
-    {
-      if (*p == CTLESC)
-	{
-	  p++;
-	  if (*p == 0)
-	    return (i + 1);
-	}
-      i++;
-    }
-
-  return i;
-}
-#endif
-
-#ifdef INCLUDE_UNUSED
-/* Find the first occurrence of character C in string S, obeying shell
-   quoting rules.  If (FLAGS & ST_BACKSL) is non-zero, backslash-escaped
-   characters are skipped.  If (FLAGS & ST_CTLESC) is non-zero, characters
-   escaped with CTLESC are skipped. */
-static char *
-quoted_strchr (s, c, flags)
-     char *s;
-     int c, flags;
-{
-  register char *p;
-
-  for (p = s; *p; p++)
-    {
-      if (((flags & ST_BACKSL) && *p == '\\')
-	    || ((flags & ST_CTLESC) && *p == CTLESC))
-	{
-	  p++;
-	  if (*p == '\0')
-	    return ((char *)NULL);
-	  continue;
-	}
-      else if (*p == c)
-	return p;
-    }
-  return ((char *)NULL);
-}
-
-/* Return 1 if CHARACTER appears in an unquoted portion of
-   STRING.  Return 0 otherwise.  CHARACTER must be a single-byte character. */
-static int
-unquoted_member (character, string)
-     int character;
-     char *string;
-{
-  size_t slen;
-  int sindex, c;
-  DECLARE_MBSTATE;
-
-  slen = strlen (string);
-  sindex = 0;
-  while (c = string[sindex])
-    {
-      if (c == character)
-	return (1);
-
-      switch (c)
-	{
-	default:
-	  ADVANCE_CHAR (string, slen, sindex);
-	  break;
-
-	case '\\':
-	  sindex++;
-	  if (string[sindex])
-	    ADVANCE_CHAR (string, slen, sindex);
-	  break;
-
-	case '\'':
-	  sindex = skip_single_quoted (string, slen, ++sindex, 0);
-	  break;
-
-	case '"':
-	  sindex = skip_double_quoted (string, slen, ++sindex, 0);
-	  break;
-	}
-    }
-  return (0);
-}
-
-/* Return 1 if SUBSTR appears in an unquoted portion of STRING. */
-static int
-unquoted_substring (substr, string)
-     char *substr, *string;
-{
-  size_t slen;
-  int sindex, c, sublen;
-  DECLARE_MBSTATE;
-
-  if (substr == 0 || *substr == '\0')
-    return (0);
-
-  slen = strlen (string);
-  sublen = strlen (substr);
-  for (sindex = 0; c = string[sindex]; )
-    {
-      if (STREQN (string + sindex, substr, sublen))
-	return (1);
-
-      switch (c)
-	{
-	case '\\':
-	  sindex++;
-	  if (string[sindex])
-	    ADVANCE_CHAR (string, slen, sindex);
-	  break;
-
-	case '\'':
-	  sindex = skip_single_quoted (string, slen, ++sindex, 0);
-	  break;
-
-	case '"':
-	  sindex = skip_double_quoted (string, slen, ++sindex, 0);
-	  break;
-
-	default:
-	  ADVANCE_CHAR (string, slen, sindex);
-	  break;
-	}
-    }
-  return (0);
-}
-#endif
-
 /* Most of the substitutions must be done in parallel.  In order
    to avoid using tons of unclear goto's, I have some functions
    for manipulating malloc'ed strings.  They all take INDX, a
@@ -4200,24 +4019,6 @@ dequote_escapes (string)
   return result;
 }
 
-#if defined (INCLUDE_UNUSED)
-static WORD_LIST *
-list_dequote_escapes (list)
-     WORD_LIST *list;
-{
-  register WORD_LIST *w;
-  char *t;
-
-  for (w = list; w; w = w->next)
-    {
-      t = w->word->word;
-      w->word->word = dequote_escapes (t);
-      free (t);
-    }
-  return list;
-}
-#endif
-
 /* Return a new string with the quoted representation of character C.
    This turns "" into QUOTED_NULL, so the W_HASQUOTEDNULL flag needs to be
    set in any resultant WORD_DESC where this value is the word. */
@@ -4509,33 +4310,6 @@ word_list_remove_quoted_nulls (list)
 /*	   Functions for Matching and Removing Patterns		    */
 /*								    */
 /* **************************************************************** */
-
-#if defined (HANDLE_MULTIBYTE)
-# ifdef INCLUDE_UNUSED
-static unsigned char *
-mb_getcharlens (string, len)
-     char *string;
-     int len;
-{
-  int i, offset, last;
-  unsigned char *ret;
-  char *p;
-  DECLARE_MBSTATE;
-
-  i = offset = 0;
-  last = 0;
-  ret = (unsigned char *)xmalloc (len);
-  memset (ret, 0, len);
-  while (string[last])
-    {
-      ADVANCE_CHAR (string, len, offset);
-      ret[last] = offset - last;
-      last = offset;
-    }
-  return ret;
-}
-#  endif
-#endif
 
 /* Remove the portion of PARAM matched by PATTERN according to OP, where OP
    can have one of 4 values:
@@ -8174,24 +7948,6 @@ parameter_brace_substring (varname, value, ind, substr, quoted, pflags, flags)
 /* Functions to perform pattern substitution on variable values */
 /*								*/
 /****************************************************************/
-
-#ifdef INCLUDE_UNUSED
-static int
-shouldexp_replacement (s)
-     char *s;
-{
-  register char *p;
-
-  for (p = s; p && *p; p++)
-    {
-      if (*p == '\\')
-	p++;
-      else if (*p == '&')
-	return 1;
-    }
-  return 0;
-}
-#endif
 
 char *
 pat_subst (string, pat, rep, mflags)

@@ -159,10 +159,6 @@ static char *fc_gethist PARAMS((char *, HIST_ENTRY **, int));
 static int fc_gethnum PARAMS((char *, HIST_ENTRY **, int));
 static int fc_number PARAMS((WORD_LIST *));
 static void fc_replhist PARAMS((char *));
-#ifdef INCLUDE_UNUSED
-static char *fc_readline PARAMS((FILE *));
-static void fc_addhist PARAMS((char *));
-#endif
 
 static void
 set_verbose_flag ()
@@ -669,50 +665,6 @@ fc_gethist (command, hlist, mode)
     return ((char *)NULL);
 }
 
-#ifdef INCLUDE_UNUSED
-/* Read the edited history lines from STREAM and return them
-   one at a time.  This can read unlimited length lines.  The
-   caller should free the storage. */
-static char *
-fc_readline (stream)
-     FILE *stream;
-{
-  register int c;
-  int line_len = 0, lindex = 0;
-  char *line = (char *)NULL;
-
-  while ((c = getc (stream)) != EOF)
-    {
-      if ((lindex + 2) >= line_len)
-	line = (char *)xrealloc (line, (line_len += 128));
-
-      if (c == '\n')
-	{
-	  line[lindex++] = '\n';
-	  line[lindex++] = '\0';
-	  return (line);
-	}
-      else
-	line[lindex++] = c;
-    }
-
-  if (!lindex)
-    {
-      if (line)
-	free (line);
-
-      return ((char *)NULL);
-    }
-
-  if (lindex + 2 >= line_len)
-    line = (char *)xrealloc (line, lindex + 3);
-
-  line[lindex++] = '\n';	    /* Finish with newline if none in file */
-  line[lindex++] = '\0';
-  return (line);
-}
-#endif
-
 /* Perform the SUBS on COMMAND.
    SUBS is a list of substitutions, and COMMAND is a simple string.
    Return a pointer to a malloc'ed string which contains the substituted
@@ -757,26 +709,5 @@ fc_replhist (command)
       maybe_add_history (command);	/* Obeys HISTCONTROL setting. */
     }
 }
-
-#ifdef INCLUDE_UNUSED
-/* Add LINE to the history, after removing a single trailing newline. */
-static void
-fc_addhist (line)
-     char *line;
-{
-  register int n;
-
-  if (line == 0 || *line == 0)
-    return;
-
-  n = strlen (line);
-
-  if (line[n - 1] == '\n')
-    line[n - 1] = '\0';
-
-  if (line && *line)
-    maybe_add_history (line);		/* Obeys HISTCONTROL setting. */
-}
-#endif
 
 #endif /* HISTORY */

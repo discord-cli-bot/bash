@@ -409,30 +409,6 @@ bash_delete_last_history ()
   return r;
 }
 
-#ifdef INCLUDE_UNUSED
-/* Write the existing history out to the history file. */
-void
-save_history ()
-{
-  char *hf;
-  int r;
-
-  hf = get_string_value ("HISTFILE");
-  if (hf && *hf && file_exists (hf))
-    {
-      /* Append only the lines that occurred this session to
-	 the history file. */
-      using_history ();
-
-      if (history_lines_this_session <= where_history () || force_append_history)
-	r = append_history (history_lines_this_session, hf);
-      else
-	r = write_history (hf);
-      sv_histsize ("HISTFILESIZE");
-    }
-}
-#endif
-
 int
 maybe_append_history (filename)
      char *filename;
@@ -662,23 +638,6 @@ shell_comment (line)
   n = skip_to_delim (line, p - line, "#", SD_NOJMP|SD_GLOB|SD_EXTGLOB|SD_COMPLETE);
   return (line[n] == '#') ? 2 : 0;
 }
-
-#ifdef INCLUDE_UNUSED
-/* Remove shell comments from LINE.  A `#' and anything after it is a comment.
-   This isn't really useful yet, since it doesn't handle quoting. */
-static char *
-filter_comments (line)
-     char *line;
-{
-  char *p;
-
-  for (p = line; p && *p && *p != '#'; p++)
-    ;
-  if (p && *p == '#')
-    *p = '\0';
-  return (line);
-}
-#endif
 
 /* Check LINE against what HISTCONTROL says to do.  Returns 1 if the line
    should be saved; 0 if it should be discarded. */

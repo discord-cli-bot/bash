@@ -3726,25 +3726,6 @@ yy_ungetc (c)
   return (*(bash_input.ungetter)) (c);
 }
 
-#if defined (BUFFERED_INPUT)
-#ifdef INCLUDE_UNUSED
-int
-input_file_descriptor ()
-{
-  switch (bash_input.type)
-    {
-    case st_stream:
-      return (fileno (bash_input.location.file));
-    case st_bstream:
-      return (bash_input.location.buffered_fd);
-    case st_stdin:
-    default:
-      return (fileno (stdin));
-    }
-}
-#endif
-#endif /* BUFFERED_INPUT */
-
 /* **************************************************************** */
 /*								    */
 /*		  Let input be read from readline ().		    */
@@ -4991,16 +4972,6 @@ parser_remaining_input ()
     return "";	/* XXX */
   return (shell_input_line + shell_input_line_index);
 }
-
-#ifdef INCLUDE_UNUSED
-/* Back the input pointer up by one, effectively `ungetting' a character. */
-static void
-shell_ungetchar ()
-{
-  if (shell_input_line && shell_input_line_index)
-    shell_input_line_index--;
-}
-#endif
 
 /* Discard input until CHARACTER is seen, then push that character back
    onto the input stream. */

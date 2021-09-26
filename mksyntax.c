@@ -90,20 +90,6 @@ usage()
   exit (2);
 }
 
-#ifdef INCLUDE_UNUSED
-static int
-getcflag (s)
-     char *s;
-{
-  int i;
-
-  for (i = 0; i < N_WFLAGS; i++)
-    if (strcmp (s, wordflags[i].fstr) == 0)
-      return wordflags[i].flag;
-  return -1;
-}
-#endif
-
 static char *
 cdesc (i)
      int i;

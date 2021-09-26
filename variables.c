@@ -3695,53 +3695,6 @@ assign_in_env (word, flags)
 
 /* **************************************************************** */
 /*								    */
-/*			Copying variables			    */
-/*								    */
-/* **************************************************************** */
-
-#ifdef INCLUDE_UNUSED
-/* Copy VAR to a new data structure and return that structure. */
-SHELL_VAR *
-copy_variable (var)
-     SHELL_VAR *var;
-{
-  SHELL_VAR *copy = (SHELL_VAR *)NULL;
-
-  if (var)
-    {
-      copy = (SHELL_VAR *)xmalloc (sizeof (SHELL_VAR));
-
-      copy->attributes = var->attributes;
-      copy->name = savestring (var->name);
-
-      if (function_p (var))
-	var_setfunc (copy, copy_command (function_cell (var)));
-#if defined (ARRAY_VARS)
-      else if (array_p (var))
-	var_setarray (copy, array_copy (array_cell (var)));
-      else if (assoc_p (var))
-	var_setassoc (copy, assoc_copy (assoc_cell (var)));
-#endif
-      else if (nameref_cell (var))	/* XXX - nameref */
-	var_setref (copy, savestring (nameref_cell (var)));
-      else if (value_cell (var))	/* XXX - nameref */
-	var_setvalue (copy, savestring (value_cell (var)));
-      else
-	var_setvalue (copy, (char *)NULL);
-
-      copy->dynamic_value = var->dynamic_value;
-      copy->assign_func = var->assign_func;
-
-      copy->exportstr = COPY_EXPORTSTR (var);
-
-      copy->context = var->context;
-    }
-  return (copy);
-}
-#endif
-
-/* **************************************************************** */
-/*								    */
 /*		  Deleting and unsetting variables		    */
 /*								    */
 /* **************************************************************** */
@@ -4073,45 +4026,6 @@ set_var_read_only (name)
   FIND_OR_MAKE_VARIABLE (name, entry);
   VSETATTR (entry, att_readonly);
 }
-
-#ifdef INCLUDE_UNUSED
-/* Make the function associated with NAME be readonly.
-   If NAME does not exist, we just punt, like auto_export code below. */
-void
-set_func_read_only (name)
-     const char *name;
-{
-  SHELL_VAR *entry;
-
-  entry = find_function (name);
-  if (entry)
-    VSETATTR (entry, att_readonly);
-}
-
-/* Make the variable associated with NAME be auto-exported.
-   If NAME does not exist yet, create it. */
-void
-set_var_auto_export (name)
-     char *name;
-{
-  SHELL_VAR *entry;
-
-  FIND_OR_MAKE_VARIABLE (name, entry);
-  set_auto_export (entry);
-}
-
-/* Make the function associated with NAME be auto-exported. */
-void
-set_func_auto_export (name)
-     const char *name;
-{
-  SHELL_VAR *entry;
-
-  entry = find_function (name);
-  if (entry)
-    set_auto_export (entry);
-}
-#endif
 
 /* **************************************************************** */
 /*								    */

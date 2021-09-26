@@ -527,16 +527,6 @@ char	*value;
 	return(r);
 }
 
-#ifdef INCLUDE_UNUSED
-ARRAY_ELEMENT *
-array_copy_element(ae)
-ARRAY_ELEMENT	*ae;
-{
-	return(ae ? array_create_element(element_index(ae), element_value(ae))
-		  : (ARRAY_ELEMENT *) NULL);
-}
-#endif
-
 void
 array_dispose_element(ae)
 ARRAY_ELEMENT	*ae;

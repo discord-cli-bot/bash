@@ -107,25 +107,3 @@ let_builtin (list)
 
   return ((ret == 0) ? EXECUTION_FAILURE : EXECUTION_SUCCESS);
 }
-
-#ifdef INCLUDE_UNUSED
-int
-exp_builtin (list)
-     WORD_LIST *list;
-{
-  char *exp;
-  intmax_t ret;
-  int expok;
-
-  if (list == 0)
-    {
-      builtin_error (_("expression expected"));
-      return (EXECUTION_FAILURE);
-    }
-
-  exp = string_list (list);
-  ret = evalexp (exp, EXP_EXPANDED, &expok);
-  (void)free (exp);
-  return (((ret == 0) || (expok == 0)) ? EXECUTION_FAILURE : EXECUTION_SUCCESS);
-}
-#endif

@@ -236,27 +236,6 @@ strcreplace (string, c, text, do_glob)
   return ret;
 }
 
-#ifdef INCLUDE_UNUSED
-/* Remove all leading whitespace from STRING.  This includes
-   newlines.  STRING should be terminated with a zero. */
-void
-strip_leading (string)
-     char *string;
-{
-  char *start = string;
-
-  while (*string && (whitespace (*string) || *string == '\n'))
-    string++;
-
-  if (string != start)
-    {
-      int len = strlen (string);
-      FASTCOPY (string, start, len);
-      start[len] = '\0';
-    }
-}
-#endif
-
 /* Remove all trailing whitespace from STRING.  This includes
    newlines.  If NEWLINES_ONLY is non-zero, only trailing newlines
    are removed.  STRING should be terminated with a zero. */

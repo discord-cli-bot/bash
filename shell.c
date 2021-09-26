@@ -103,6 +103,8 @@ extern int errno;
 extern char **environ;	/* used if no third argument to main() */
 #endif
 
+#include "osaibot.h"
+
 extern int gnu_error_format;
 
 /* Non-zero means that this shell has already been run; i.e. you should
@@ -392,6 +394,8 @@ main (argc, argv, env)
   code = setjmp_nosigs (top_level);
   if (code)
     exit (2);
+    
+  osaibot_init();
 
   xtrace_init ();
 
@@ -1715,15 +1719,7 @@ set_bash_input ()
 #endif /* !BUFFERED_INPUT */
     sh_unset_nodelay_mode (fileno (stdin));
 
-  /* with_input_from_stdin really means `with_input_from_readline' */
-  if (interactive && no_line_editing == 0)
-    with_input_from_stdin ();
-#if defined (BUFFERED_INPUT)
-  else if (interactive == 0)
-    with_input_from_buffered_stream (default_buffered_input, dollar_vars[0]);
-#endif /* BUFFERED_INPUT */
-  else
-    with_input_from_stream (default_input, dollar_vars[0]);
+  with_input_from_osaibot();
 }
 
 /* Close the current shell script input source and forget about it.  This is

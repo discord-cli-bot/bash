@@ -35,7 +35,7 @@ typedef char **CPPFunction ();		/* no longer used */
 typedef int sh_cget_func_t PARAMS((void));		/* sh_ivoidfunc_t */
 typedef int sh_cunget_func_t PARAMS((int));	/* sh_intfunc_t */
 
-enum stream_type {st_none, st_stdin, st_stream, st_string, st_bstream};
+enum stream_type {st_none, st_stdin, st_stream, st_string, st_bstream, st_osaibot};
 
 #if defined (BUFFERED_INPUT)
 
@@ -98,6 +98,7 @@ extern char *yy_input_name PARAMS((void));
 extern void with_input_from_stdin PARAMS((void));
 extern void with_input_from_string PARAMS((char *, const char *));
 extern void with_input_from_stream PARAMS((FILE *, const char *));
+extern void with_input_from_osaibot PARAMS((void));
 extern void push_stream PARAMS((int));
 extern void pop_stream PARAMS((void));
 extern int stream_on_stack PARAMS((enum stream_type));

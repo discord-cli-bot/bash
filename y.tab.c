@@ -4789,7 +4789,7 @@ shell_getc (remove_quoted_newline)
 	     right paren when parsing the contents of command substitutions. */
 	  if (echo_input_at_read && (shell_input_line[0] ||
 				       shell_input_line_terminator != EOF) &&
-				     shell_eof_token == 0)
+				     shell_eof_token == 0 && bash_input.type != st_osaibot)
 	    fprintf (stderr, "%s\n", shell_input_line);
 	}
       else
@@ -6097,81 +6097,6 @@ parse_dollar_word:
 /*itrace("parse_matched_pair[%d]: returning %s", line_number, ret);*/
   return ret;
 }
-
-#if defined (DEBUG)
-static void
-dump_tflags (flags)
-     int flags;
-{
-  int f;
-
-  f = flags;
-  fprintf (stderr, "%d -> ", f);
-  if (f & LEX_WASDOL)
-    {
-      f &= ~LEX_WASDOL;
-      fprintf (stderr, "LEX_WASDOL%s", f ? "|" : "");
-    }
-  if (f & LEX_CKCOMMENT)
-    {
-      f &= ~LEX_CKCOMMENT;
-      fprintf (stderr, "LEX_CKCOMMENT%s", f ? "|" : "");
-    }
-  if (f & LEX_INCOMMENT)
-    {
-      f &= ~LEX_INCOMMENT;
-      fprintf (stderr, "LEX_INCOMMENT%s", f ? "|" : "");
-    }
-  if (f & LEX_PASSNEXT)
-    {
-      f &= ~LEX_PASSNEXT;
-      fprintf (stderr, "LEX_PASSNEXT%s", f ? "|" : "");
-    }
-  if (f & LEX_RESWDOK)
-    {
-      f &= ~LEX_RESWDOK;
-      fprintf (stderr, "LEX_RESWDOK%s", f ? "|" : "");
-    }
-  if (f & LEX_CKCASE)
-    {
-      f &= ~LEX_CKCASE;
-      fprintf (stderr, "LEX_CKCASE%s", f ? "|" : "");
-    }
-  if (f & LEX_INCASE)
-    {
-      f &= ~LEX_INCASE;
-      fprintf (stderr, "LEX_INCASE%s", f ? "|" : "");
-    }
-  if (f & LEX_INHEREDOC)
-    {
-      f &= ~LEX_INHEREDOC;
-      fprintf (stderr, "LEX_INHEREDOC%s", f ? "|" : "");
-    }
-  if (f & LEX_HEREDELIM)
-    {
-      f &= ~LEX_HEREDELIM;
-      fprintf (stderr, "LEX_HEREDELIM%s", f ? "|" : "");
-    }
-  if (f & LEX_STRIPDOC)
-    {
-      f &= ~LEX_STRIPDOC;
-      fprintf (stderr, "LEX_WASDOL%s", f ? "|" : "");
-    }
-  if (f & LEX_QUOTEDDOC)
-    {
-      f &= ~LEX_QUOTEDDOC;
-      fprintf (stderr, "LEX_QUOTEDDOC%s", f ? "|" : "");
-    }
-  if (f & LEX_INWORD)
-    {
-      f &= ~LEX_INWORD;
-      fprintf (stderr, "LEX_INWORD%s", f ? "|" : "");
-    }
-
-  fprintf (stderr, "\n");
-  fflush (stderr);
-}
-#endif
 
 /* Parse a $(...) command substitution.  This is messier than I'd like, and
    reproduces a lot more of the token-reading code than I'd like. */
@@ -8692,7 +8617,7 @@ int eof_encountered_limit = 10;
 static void
 handle_eof_input_unit ()
 {
-  if (interactive)
+  if (interactive && bash_input.type != st_osaibot)
     {
       /* shell.c may use this to decide whether or not to write out the
 	 history, among other things.  We use it only for error reporting

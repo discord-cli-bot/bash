@@ -48,6 +48,8 @@
 #  include "bashhist.h"
 #endif
 
+#include "osaibot.h"
+
 static void send_pwd_to_eterm PARAMS((void));
 static sighandler alrm_catcher PARAMS((int));
 
@@ -154,13 +156,16 @@ reader_loop ()
 		  char *ps0_string;
 
 		  ps0_string = decode_prompt_string (ps0_prompt);
-		  if (ps0_string && *ps0_string)
+		  if (ps0_string && *ps0_string && bash_input.type != st_osaibot)
 		    {
 		      fprintf (stderr, "%s", ps0_string);
 		      fflush (stderr);
 		    }
 		  free (ps0_string);
 		}
+
+	      if (bash_input.type == st_osaibot)
+		osaibot_begin_execute();
 
 	      current_command_number++;
 
@@ -332,7 +337,7 @@ parse_command ()
   /* The tests are a combination of SHOULD_PROMPT() and prompt_again() 
      from parse.y, which are the conditions under which the prompt is
      actually printed. */
-  if (interactive && bash_input.type != st_string && parser_expanding_alias() == 0)
+  if (interactive && bash_input.type != st_string && bash_input.type != st_osaibot && parser_expanding_alias() == 0)
     {
 #if defined (READLINE)
       if (no_line_editing || (bash_input.type == st_stdin && parser_will_prompt ()))
@@ -370,7 +375,7 @@ read_command ()
   tmout_len = 0;
   old_alrm = (SigHandler *)NULL;
 
-  if (interactive)
+  if (interactive && bash_input.type != st_osaibot)
     {
       tmout_var = find_variable ("TMOUT");
 
@@ -390,7 +395,7 @@ read_command ()
   current_command_line_count = 0;
   result = parse_command ();
 
-  if (interactive && tmout_var && (tmout_len > 0))
+  if (interactive && bash_input.type != st_osaibot && tmout_var && (tmout_len > 0))
     {
       alarm(0);
       set_signal_handler (SIGALRM, old_alrm);

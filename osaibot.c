@@ -3,6 +3,7 @@
 #include "bashtypes.h"
 
 #include "error.h"
+#include "shell.h"
 #include "xmalloc.h"
 
 #include <errno.h>
@@ -10,7 +11,20 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
+#include <termios.h>
+#include <unistd.h>
+
+enum osaibot_command {
+	CMD_INPUT = 1,
+	CMD_SIGNAL = 2,
+};
+
+enum osaibot_response {
+	RESP_PROMPT = 1,
+	RESP_BEGIN = 2,
+};
 
 struct pending_command {
 	struct pending_command *next;
@@ -27,6 +41,31 @@ static bool inputs_done;
 
 static int sock;
 
+static void send_fd(int sock, int fd)
+{
+	struct msghdr msg = {};
+	struct cmsghdr *cmsg;
+	char buf[CMSG_SPACE(sizeof(int))] = {0}, c = 'c';
+	struct iovec io = {
+		.iov_base = &c,
+		.iov_len = 1,
+	};
+
+	msg.msg_iov = &io;
+	msg.msg_iovlen = 1;
+	msg.msg_control = buf;
+	msg.msg_controllen = sizeof(buf);
+	cmsg = CMSG_FIRSTHDR(&msg);
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+	*((int *)CMSG_DATA(cmsg)) = fd;
+	msg.msg_controllen = cmsg->cmsg_len;
+
+	if (sendmsg(sock, &msg, 0) < 0)
+		fatal_error("sendmsg failed");
+}
+
 int osaibot_getc(void)
 {
 	struct pending_command *input;
@@ -35,7 +74,7 @@ int osaibot_getc(void)
 	pthread_mutex_lock(&input_lock);
 	while (!(input = inputs_pending) && !inputs_done)
 		pthread_cond_wait(&input_cv, &input_lock);
-	
+
 	if (!input) {
 		pthread_mutex_unlock(&input_lock);
 		return EOF;
@@ -72,35 +111,41 @@ bad:
 
 void osaibot_prompt(char *prompt)
 {
-	send(sock, prompt, strlen(prompt), 0);
+	size_t len = strlen(prompt);
+	struct termios termios;
+	char buf[len + 1];
+
+	// Enforce TOSTOP. Background processes may not display to terminal.
+	if (tcgetattr(STDIN_FILENO, &termios) < 0)
+		fatal_error("tcgetattr failed");
+
+	termios.c_lflag |= TOSTOP;
+	if (tcsetattr(STDIN_FILENO, TCSADRAIN, &termios) < 0)
+		fatal_error("tcsetattr failed");
+
+	memcpy(buf + 1, prompt, len);
+	buf[0] = RESP_PROMPT;
+	send(sock, buf, sizeof(buf), 0);
+}
+
+void osaibot_begin_execute(void)
+{
+	char buf[1] = { RESP_BEGIN };
+
+	send(sock, buf, sizeof(buf), 0);
 }
 
 static void *osaibot_input_thread_fn(void *unused)
 {
-	struct sockaddr_un sockaddr = {
-		.sun_family = AF_UNIX,
-		.sun_path = "/tmp/socket",
-	};
-
-	// TODO: SOCK_SEQPACKET
-	sock = socket(AF_UNIX, SOCK_SEQPACKET, 0);
-	if (sock == -1)
-		fatal_error("socket failed");
-
-	if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)))
-		fatal_error("connect failed");
-
 	while (true) {
-		struct pending_command **ptr;
-		struct pending_command *input;
 		char *buf;
 		int size;
-		
-		size = recv(sock, NULL, 0, MSG_PEEK|MSG_TRUNC);
+
+		size = recv(sock, NULL, 0, MSG_PEEK | MSG_TRUNC);
 		if (size < 0)
 			fatal_error("recv failed");
 
-		buf = xmalloc(size + 1);
+		buf = xmalloc(size);
 		if (recv(sock, buf, size, 0) != size)
 			fatal_error("recv failed");
 
@@ -109,23 +154,42 @@ static void *osaibot_input_thread_fn(void *unused)
 			inputs_done = true;
 			pthread_cond_signal(&input_cv);
 			pthread_mutex_unlock(&input_lock);
-			
+
 			break;
 		}
-		
-		buf[size] = '\0';
-		input = xmalloc(sizeof(*input));
-		*input = (struct pending_command) {
-			.string = buf,
-			.length = size,
-		};
-		
-		pthread_mutex_lock(&input_lock);
-		for (ptr = &inputs_pending; *ptr; ptr = &(*ptr)->next);
-		
-		*ptr = input;
-		pthread_cond_signal(&input_cv);
-		pthread_mutex_unlock(&input_lock);
+
+		switch (buf[0]) {
+		case CMD_INPUT:
+		{
+			struct pending_command *input;
+			struct pending_command **ptr;
+			char *input_str;
+
+			input_str = xmalloc(size);
+			input_str[size - 1] = '\0';
+			memcpy(input_str, buf + 1, size - 1);
+
+			input = xmalloc(sizeof(*input));
+			*input = (struct pending_command) {
+				.string = input_str,
+				.length = size,
+			};
+
+			pthread_mutex_lock(&input_lock);
+			// Insert to back of linked list
+			for (ptr = &inputs_pending; *ptr; ptr = &(*ptr)->next);
+			*ptr = input;
+			pthread_cond_signal(&input_cv);
+			pthread_mutex_unlock(&input_lock);
+
+			break;
+		}
+		case CMD_SIGNAL:
+			// TODO
+			break;
+		}
+
+		xfree(buf);
 	}
 
 	return NULL;
@@ -133,7 +197,28 @@ static void *osaibot_input_thread_fn(void *unused)
 
 int osaibot_init(void)
 {
+	struct sockaddr_un sockaddr = {
+		.sun_family = AF_UNIX,
+		.sun_path = "/tmp/socket",
+	};
 	pthread_t thread;
+	int pidfd;
+
+	no_line_editing = 1;
+
+	sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+	if (sock < 0)
+		fatal_error("socket failed");
+
+	if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)))
+		fatal_error("connect failed");
+
+	pidfd = syscall(SYS_pidfd_open, getpid(), 0);
+	if (pidfd < 0)
+		fatal_error("pidfd_open failed");
+
+	send_fd(sock, pidfd);
+	close(pidfd);
 
 	if (pthread_create(&thread, NULL, osaibot_input_thread_fn, NULL))
 		fatal_error("pthread_create failed");

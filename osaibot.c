@@ -120,7 +120,7 @@ void osaibot_prompt(char *prompt)
 		fatal_error("tcgetattr failed");
 
 	termios.c_lflag |= TOSTOP;
-	if (tcsetattr(STDIN_FILENO, TCSADRAIN, &termios) < 0)
+	if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &termios) < 0)
 		fatal_error("tcsetattr failed");
 
 	memcpy(buf + 1, prompt, len);

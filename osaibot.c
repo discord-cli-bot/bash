@@ -185,8 +185,23 @@ static void *osaibot_input_thread_fn(void *unused)
 			break;
 		}
 		case CMD_SIGNAL:
-			// TODO
+		{
+			pid_t foreground_pgid;
+			int signum;
+
+			if (size < 1 + sizeof(int))
+				break;
+			signum = *(int *)(buf + 1);
+
+			foreground_pgid = tcgetpgrp(0);
+			if (foreground_pgid < 0)
+				break;
+			if (foreground_pgid == getpid())
+				break;
+
+			kill(-foreground_pgid, signum);
 			break;
+		}
 		}
 
 		xfree(buf);

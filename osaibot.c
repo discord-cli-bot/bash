@@ -214,7 +214,7 @@ int osaibot_init(void)
 {
 	struct sockaddr_un sockaddr = {
 		.sun_family = AF_UNIX,
-		.sun_path = "/tmp/socket",
+		.sun_path = "/osaibot-sock",
 	};
 	pthread_t thread;
 	int pidfd;

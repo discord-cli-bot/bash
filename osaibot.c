@@ -7,6 +7,7 @@
 #include "xmalloc.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -217,6 +218,7 @@ int osaibot_init(void)
 		.sun_path = "/osaibot-sock",
 	};
 	pthread_t thread;
+	int netnsfd;
 	int pidfd;
 
 	no_line_editing = 1;
@@ -234,6 +236,12 @@ int osaibot_init(void)
 
 	send_fd(sock, pidfd);
 	close(pidfd);
+
+	netnsfd = open("/proc/self/ns/net", O_RDONLY);
+	if (netnsfd < 0)
+		fatal_error("pidfd_open failed");
+	send_fd(sock, netnsfd);
+	close(netnsfd);
 
 	if (pthread_create(&thread, NULL, osaibot_input_thread_fn, NULL))
 		fatal_error("pthread_create failed");

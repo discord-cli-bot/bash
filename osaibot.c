@@ -11,6 +11,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/un.h>
@@ -213,22 +214,43 @@ static void *osaibot_input_thread_fn(void *unused)
 
 int osaibot_init(void)
 {
-	struct sockaddr_un sockaddr = {
-		.sun_family = AF_UNIX,
-		.sun_path = "/osaibot-sock",
-	};
+	char *sock_fd_env;
+	char *exe_fd_env;
 	pthread_t thread;
 	int netnsfd;
 	int pidfd;
+	int exefd;
+	int flags;
 
 	no_line_editing = 1;
 
-	sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
-	if (sock < 0)
-		fatal_error("socket failed");
+	sock_fd_env = getenv("SOCK_FD");
+	if (!sock_fd_env)
+		fatal_error("missing env var SOCK_FD");
 
-	if (connect(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)))
-		fatal_error("connect failed");
+	sock = atoi(sock_fd_env);
+	unsetenv("SOCK_FD");
+
+	flags = fcntl(sock, F_GETFD);
+	if (flags < 0)
+		fatal_error("fcntl failed");
+	if (fcntl(sock, F_SETFD, flags | FD_CLOEXEC))
+		fatal_error("fcntl failed");
+
+	flags = fcntl(sock, F_GETFL);
+	if (flags < 0)
+		fatal_error("fcntl failed");
+	if (fcntl(sock, F_SETFL, flags & ~O_NONBLOCK))
+		fatal_error("fcntl failed");
+
+	exe_fd_env = getenv("EXE_FD");
+	if (!exe_fd_env)
+		fatal_error("missing env var EXE_FD");
+
+	exefd = atoi(exe_fd_env);
+	unsetenv("EXE_FD");
+
+	close(exefd);
 
 	pidfd = syscall(SYS_pidfd_open, getpid(), 0);
 	if (pidfd < 0)

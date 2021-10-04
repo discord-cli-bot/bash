@@ -374,6 +374,9 @@ initialize_shell_variables (env, privmode)
 
       temp_var = (SHELL_VAR *)NULL;
 
+      if (STREQ(name, "SOCK_FD") || STREQ(name, "EXE_FD"))
+	continue;
+
 #if defined (FUNCTION_IMPORT)
       /* If exported function, define it now.  Don't import functions from
 	 the environment in privileged mode. */

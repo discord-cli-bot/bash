@@ -224,6 +224,8 @@ int osaibot_init(void)
 
 	no_line_editing = 1;
 
+	pthread_setname_np(pthread_self(), "bash");
+
 	sock_fd_env = getenv("SOCK_FD");
 	if (!sock_fd_env)
 		fatal_error("missing env var SOCK_FD");

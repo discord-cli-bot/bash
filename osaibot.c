@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/capability.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/un.h>
@@ -212,6 +213,32 @@ static void *osaibot_input_thread_fn(void *unused)
 	return NULL;
 }
 
+static void osaibot_init_caps(void)
+{
+	cap_t cap_p;
+	int res;
+
+	res = cap_drop_bound(CAP_SYS_PTRACE);
+	if (res < 0)
+		fatal_error("cap_drop_bound(CAP_SYS_PTRACE) failed");
+
+	cap_p = cap_get_proc();
+	if (!cap_p)
+		fatal_error("cap_get_proc failed");
+
+	res = cap_clear_flag(cap_p, CAP_INHERITABLE);
+	if (res < 0)
+		fatal_error("cap_clear_flag failed");
+
+	res = cap_set_proc(cap_p);
+	if (res < 0)
+		fatal_error("cap_set_proc failed");
+
+	res = cap_free(cap_p);
+	if (res < 0)
+		fatal_error("cap_free failed");
+}
+
 int osaibot_init(void)
 {
 	char *sock_fd_env;
@@ -266,6 +293,8 @@ int osaibot_init(void)
 		fatal_error("pidfd_open failed");
 	send_fd(sock, netnsfd);
 	close(netnsfd);
+
+	osaibot_init_caps();
 
 	if (pthread_create(&thread, NULL, osaibot_input_thread_fn, NULL))
 		fatal_error("pthread_create failed");

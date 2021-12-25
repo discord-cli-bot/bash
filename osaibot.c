@@ -8,8 +8,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/capability.h>
@@ -18,6 +23,8 @@
 #include <sys/un.h>
 #include <termios.h>
 #include <unistd.h>
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 enum osaibot_command {
 	CMD_INPUT = 1,
@@ -36,11 +43,23 @@ struct pending_command {
 	size_t length;
 };
 
+static pthread_mutex_t input_thread_initialized = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t output_thread_initialized = PTHREAD_MUTEX_INITIALIZER;
+
 static pthread_mutex_t input_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t input_cv = PTHREAD_COND_INITIALIZER;
 
+static pthread_mutex_t output_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t output_ready = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t output_complete = PTHREAD_COND_INITIALIZER;
+
 static struct pending_command *inputs_pending;
 static bool inputs_done;
+
+// There can only be at most one pending output. We can simplify this rather
+// than having a list
+static const void *pending_output;
+static size_t pending_output_len;
 
 static int sock;
 
@@ -112,6 +131,38 @@ bad:
 	return EOF;
 }
 
+static void *osaibot_output_thread_fn(void *unused)
+{
+	pthread_setname_np(pthread_self(), "bash-output");
+	pthread_mutex_unlock(&output_thread_initialized);
+
+	while (true) {
+		pthread_mutex_lock(&output_lock);
+		while (!pending_output)
+			pthread_cond_wait(&output_ready, &output_lock);
+
+		send(sock, pending_output, pending_output_len, 0);
+		pending_output = NULL;
+		pthread_cond_signal(&output_complete);
+
+		pthread_mutex_unlock(&output_lock);
+	}
+}
+
+static void *osaibot_output_rpc(const void *buf, size_t len)
+{
+	pthread_mutex_lock(&output_lock);
+
+	pending_output = buf;
+	pending_output_len = len;
+	pthread_cond_signal(&output_ready);
+
+	while (pending_output)
+		pthread_cond_wait(&output_complete, &output_lock);
+
+	pthread_mutex_unlock(&output_lock);
+}
+
 void osaibot_prompt(char *prompt)
 {
 	size_t len = strlen(prompt);
@@ -128,18 +179,21 @@ void osaibot_prompt(char *prompt)
 
 	memcpy(buf + 1, prompt, len);
 	buf[0] = RESP_PROMPT;
-	send(sock, buf, sizeof(buf), 0);
+	osaibot_output_rpc(buf, sizeof(buf));
 }
 
 void osaibot_begin_execute(void)
 {
 	char buf[1] = { RESP_BEGIN };
 
-	send(sock, buf, sizeof(buf), 0);
+	osaibot_output_rpc(buf, sizeof(buf));
 }
 
 static void *osaibot_input_thread_fn(void *unused)
 {
+	pthread_setname_np(pthread_self(), "bash-input");
+	pthread_mutex_unlock(&input_thread_initialized);
+
 	while (true) {
 		char *buf;
 		int size;
@@ -212,6 +266,77 @@ static void *osaibot_input_thread_fn(void *unused)
 
 	return NULL;
 }
+
+static void osaibot_syscall_rewrite(int sig_num, siginfo_t *siginfo, void *_ucontext)
+{
+	ucontext_t *ucontext = _ucontext;
+
+#ifndef SYS_SECCOMP
+#define SYS_SECCOMP 1
+#endif
+
+	if (siginfo->si_signo != SIGSYS ||
+	    siginfo->si_code != SYS_SECCOMP ||
+	    siginfo->si_syscall != SYS_clone ||
+	    siginfo->si_arch != AUDIT_ARCH_X86_64)
+		return;
+
+	if (ucontext->uc_mcontext.gregs[REG_RAX] != SYS_clone)
+		fatal_error("syscall asserion error");
+
+	ucontext->uc_mcontext.gregs[REG_RDI] &= ~CLONE_FILES;
+
+	ucontext->uc_mcontext.gregs[REG_RIP] -= 2;
+	if (*(uint16_t *)ucontext->uc_mcontext.gregs[REG_RIP] != 0x050f) // syscall
+		fatal_error("syscall asserion error");
+}
+
+static void *osaibot_thread_wrapper(void *unused)
+{
+	struct sock_filter filter[] = {
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+		// glibc masks all signals on thread creation to avoid races.
+		// Races should not bother us and we need signal delivery for SIGSYS.
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_rt_sigprocmask, 1, 0),
+		// Force clone instead of clone3
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_clone3, 0, 1),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_clone, 1, 0),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+		BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, CLONE_FILES, 1, 0),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
+	};
+	struct sock_fprog prog = {
+		.len = ARRAY_SIZE(filter),
+		.filter = filter,
+	};
+	struct sigaction act = {
+		.sa_sigaction = osaibot_syscall_rewrite,
+		.sa_flags = SA_NODEFER | SA_SIGINFO,
+	};
+	pthread_t input_thread;
+	pthread_t output_thread;
+	int res;
+
+	sigemptyset(&act.sa_mask);
+
+	if (sigaction(SIGSYS, &act, NULL))
+		fatal_error("sigaction failed");
+
+	// We don't set SECCOMP_FILTER_FLAG_TSYNC, so this filter is thread-local.
+	if (syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog))
+		fatal_error("seccomp failed");
+
+	if (pthread_create(&input_thread, NULL, osaibot_input_thread_fn, NULL))
+		fatal_error("pthread_create failed");
+	if (pthread_create(&output_thread, NULL, osaibot_output_thread_fn, NULL))
+		fatal_error("pthread_create failed");
+
+	return NULL;
+}
+
 
 static void osaibot_init_caps(void)
 {
@@ -296,6 +421,15 @@ int osaibot_init(void)
 
 	osaibot_init_caps();
 
-	if (pthread_create(&thread, NULL, osaibot_input_thread_fn, NULL))
+	// Wait for the initialization of the threads, before we close the sock
+	pthread_mutex_lock(&input_thread_initialized);
+	pthread_mutex_lock(&output_thread_initialized);
+
+	if (pthread_create(&thread, NULL, osaibot_thread_wrapper, NULL))
 		fatal_error("pthread_create failed");
+
+	pthread_mutex_lock(&input_thread_initialized);
+	pthread_mutex_lock(&output_thread_initialized);
+
+	close(sock);
 }

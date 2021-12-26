@@ -6,6 +6,7 @@
 #include "shell.h"
 #include "xmalloc.h"
 
+#include <alloca.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/audit.h>
@@ -270,6 +271,7 @@ static void *osaibot_input_thread_fn(void *unused)
 static void osaibot_syscall_rewrite(int sig_num, siginfo_t *siginfo, void *_ucontext)
 {
 	ucontext_t *ucontext = _ucontext;
+	void osaibot_syscall_tramp(void);
 
 #ifndef SYS_SECCOMP
 #define SYS_SECCOMP 1
@@ -277,36 +279,92 @@ static void osaibot_syscall_rewrite(int sig_num, siginfo_t *siginfo, void *_ucon
 
 	if (siginfo->si_signo != SIGSYS ||
 	    siginfo->si_code != SYS_SECCOMP ||
-	    siginfo->si_syscall != SYS_clone ||
 	    siginfo->si_arch != AUDIT_ARCH_X86_64)
 		return;
 
-	if (ucontext->uc_mcontext.gregs[REG_RAX] != SYS_clone)
+	if (ucontext->uc_mcontext.gregs[REG_RAX] != siginfo->si_syscall)
 		fatal_error("syscall asserion error");
 
-	ucontext->uc_mcontext.gregs[REG_RDI] &= ~CLONE_FILES;
+	switch (siginfo->si_syscall) {
+	case SYS_clone: {
+		void *stack;
 
-	ucontext->uc_mcontext.gregs[REG_RIP] -= 2;
-	if (*(uint16_t *)ucontext->uc_mcontext.gregs[REG_RIP] != 0x050f) // syscall
+		// RDI = flags
+		ucontext->uc_mcontext.gregs[REG_RDI] &= ~CLONE_FILES;
+
+		stack = ucontext->uc_mcontext.gregs[REG_RSI];
+		if (stack)
+			*(((void **)stack) - 1) = (void *)ucontext->uc_mcontext.gregs[REG_RIP];
+
+		break;
+	}
+	case SYS_rt_sigprocmask: {
+		// RDI = how
+		int how = ucontext->uc_mcontext.gregs[REG_RDI];
+		if (how == SIG_BLOCK || how == SIG_SETMASK) {
+			sigset_t *oldset = (void *)ucontext->uc_mcontext.gregs[REG_RSI];
+
+			if (oldset && sigismember(oldset, SIGSYS)) {
+				size_t sigsetsize = ucontext->uc_mcontext.gregs[REG_R10];
+				// This is not very safe per-se, but there should be quite a lot of buffer
+				sigset_t *newset = alloca(sigsetsize);
+
+				memcpy(newset, oldset, sigsetsize);
+				sigdelset(newset, SIGSYS);
+				ucontext->uc_mcontext.gregs[REG_RSI] = (uintptr_t)newset;
+			}
+		}
+		break;
+	}
+	default:
 		fatal_error("syscall asserion error");
+	}
+
+	*(((void **)ucontext->uc_mcontext.gregs[REG_RSP]) - 1) =
+		(void *)ucontext->uc_mcontext.gregs[REG_RIP];
+	ucontext->uc_mcontext.gregs[REG_RIP] = (uintptr_t)&osaibot_syscall_tramp;
 }
 
 static void *osaibot_thread_wrapper(void *unused)
 {
+	void osaibot_end_syscall(void);
+	union {
+		void *ptr;
+		struct {
+			uint32_t first_half;
+			uint32_t second_half;
+		};
+	} end_syscall_halves = { &osaibot_end_syscall };
 	struct sock_filter filter[] = {
+		// if this is post-hook, allow immediately
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, end_syscall_halves.first_half, 0, 3),
+		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, end_syscall_halves.second_half, 0, 1),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+
+		// No execve, filter should not affect other processes.
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_execve, 1, 0),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_execveat, 0, 1),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
+
 		// glibc masks all signals on thread creation to avoid races.
-		// Races should not bother us and we need signal delivery for SIGSYS.
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_rt_sigprocmask, 1, 0),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_rt_sigprocmask, 0, 1),
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
+
 		// Force clone instead of clone3
 		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_clone3, 0, 1),
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
-		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_clone, 1, 0),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_clone, 0, 3),
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-		BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, CLONE_FILES, 1, 0),
-		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+		BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, CLONE_FILES, 0, 1),
 		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
+
+		BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
 	};
 	struct sock_fprog prog = {
 		.len = ARRAY_SIZE(filter),
